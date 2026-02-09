@@ -71,3 +71,10 @@ The SDK automatically:
 *Signs the intent
 *Attaches headers
 *Sends the request
+---
+## Security Model
+-Uses Ed25519 signatures
+-Canonical JSON encoding
+-Nonce-based replay protection (middleware)
+-Expiring tokens
+-Private keys remain local.

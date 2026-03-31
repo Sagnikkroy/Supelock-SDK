@@ -1,80 +1,154 @@
+<div align="center">
+
 # Supelock SDK
 
-![Python](https://img.shields.io/badge/python-3.8+-blue.svg)
-![License](https://img.shields.io/badge/license-MIT-green.svg)
-![Status](https://img.shields.io/badge/status-alpha-orange.svg)
-![Crypto](https://img.shields.io/badge/crypto-Ed25519-purple.svg)
+**Give your AI agent a cryptographic identity.**
 
-Supelock SDK gives automation and agents a **cryptographic identity** and a way to attach **signed intent** to every HTTP request.
+[![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Status](https://img.shields.io/badge/status-alpha-orange.svg)]()
+[![Crypto](https://img.shields.io/badge/crypto-Ed25519-purple.svg)]()
 
-It allows websites to verify:
-- Who is acting
-- What they intend to do
-- Whether the declaration was tampered with
+The Supelock SDK signs every HTTP request your agent makes with a declared intent. APIs that run the Supelock Middleware can verify who you are, what you intend to do, and give you better access than anonymous traffic.
 
----
+[Quickstart](#quickstart) · [How it works](#how-it-works) · [API](#api) · [Contributing](#contributing)
 
-Today, websites only see requests.
-
-They don't know:
-- If the request is from legitimate automation
-- What the actor intended
-- Whether the action matches expectations
-
-Supelock introduces **verifiable intent**.
-
-Instead of guessing behavior, servers can verify signed declarations.
+</div>
 
 ---
 
-## What the SDK Does
+## The problem
 
-The Supelock SDK:
+When your AI agent calls an external API, the server has no idea if you're a legitimate automation or a random scraper. Both look identical at the HTTP level. So either you get blocked, or you get the same throttled access as everyone else.
 
-- Generates an Ed25519 keypair
-- Stores the private key locally
-- Builds a canonical intent payload
-- Cryptographically signs the payload
-- Attaches the signed token to outgoing requests
-
-That’s it. No magic. No black box scoring.
+Supelock fixes this. Your agent signs every request with an Ed25519 key. APIs that run the middleware verify the signature and give your agent the access it deserves.
 
 ---
 
-## Installation
+## Quickstart
 
 ```bash
-pip install supelock
-
+pip install cryptography httpx
 ```
-## How to use 
-```bash
-from supelock import Actor
 
-actor = Actor("ci-bot-1")
+```python
+from supelock.actor import Actor
 
+# Create an actor — generates a keypair on first run, stores it locally
+actor = Actor(
+    actor_id="my-agent",
+    registry_url="http://localhost:8001",
+    label="My AI agent",
+)
+
+# Register with the registry (safe to call multiple times)
+actor.register()
+
+# Make a signed request
 response = actor.request(
-    method="POST",
-    url="https://api.example.com/orders",
-    intent={
-        "action": "create_order",
-        "max_amount": 5000
-    },
-    json={"amount": 3000}
+    method="GET",
+    url="http://localhost:8000/api/data",
+    intent={"action": "read_data"},
 )
 
 print(response.status_code)
+print(response.headers.get("X-Supelock-Trust"))   # "high"
+print(response.headers.get("X-Supelock-Policy"))  # "verified_agent"
 ```
 
-The SDK automatically:
-
-*Signs the intent
-*Attaches headers
-*Sends the request
 ---
-## Security Model
--Uses Ed25519 signatures
--Canonical JSON encoding
--Nonce-based replay protection (middleware)
--Expiring tokens
--Private keys remain local.
+
+## How it works
+
+Every request gets two headers attached:
+
+```
+X-Supelock-Actor:  my-agent
+X-Supelock-Intent: <base64-encoded Ed25519 signed payload>
+```
+
+The signed payload contains:
+
+```json
+{
+  "actor_id": "my-agent",
+  "method": "GET",
+  "path": "/api/data",
+  "intent": { "action": "read_data" },
+  "nonce": "abc-123",
+  "iat": 1743120000,
+  "exp": 1743120300
+}
+```
+
+The middleware fetches your public key from the Registry, verifies the signature, checks expiry and replay, and sets `trust_level=high`. You get better rate limits, more data, access to restricted paths — whatever the API owner configured.
+
+---
+
+## API
+
+### `Actor(actor_id, ...)`
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `actor_id` | required | Unique identifier for your agent |
+| `key_path` | `~/.supelock/private.key` | Where to store the private key |
+| `registry_url` | `http://localhost:8001` | Supelock Registry URL |
+| `label` | None | Human-readable name |
+| `owner` | None | Team or org identifier |
+
+### `actor.register()` → `bool`
+
+Register with the Registry. Returns `True` on success or if already registered.
+
+### `actor.request(method, url, intent, ...)` → `httpx.Response`
+
+Make a signed HTTP request. Accepts all `httpx` kwargs.
+
+### `actor.create_intent_token(method, url, intent)` → `str`
+
+Build a signed token without making a request. Useful if you manage your own HTTP client.
+
+---
+
+## Security model
+
+- Ed25519 signatures — same curve used by SSH, Signal, and Tor
+- Private key never leaves your machine
+- Every request signed individually — no session tokens to steal
+- Nonce-based replay protection on the middleware side
+- Tokens expire after 5 minutes by default
+
+---
+
+## Part of the Supelock ecosystem
+
+| Repo | Role | Status |
+|------|------|--------|
+| **Supelock-SDK** | Agent identity + signing | ✅ This repo |
+| [Supelock-Registry](https://github.com/Sagnikkroy/Supelock-Registry) | Public key storage | ✅ Built |
+| [Supelock-Middleware](https://github.com/Sagnikkroy/Supelock-Middleware) | Verification + policy | ✅ Built |
+| [Supelock-Dashboard](https://github.com/Sagnikkroy/Supelock-Dashboard) | Live monitoring UI | ✅ Built |
+
+---
+
+## Contributing
+
+```bash
+git clone https://github.com/Sagnikkroy/Supelock-SDK
+cd Supelock-SDK
+pip install cryptography httpx pytest
+python test_sdk.py
+```
+
+Good first issues:
+- [ ] Async support — `await actor.async_request(...)`
+- [ ] Key rotation — generate new keypair and re-register
+- [ ] JavaScript/TypeScript SDK port
+- [ ] Token caching — reuse signed token within expiry window
+
+---
+
+## License
+
+MIT
